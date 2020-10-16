@@ -13,7 +13,7 @@ target = list(map(int, input().split()))
 def euclidean(x, y):
     return math.sqrt(sum([(a - b) ** 2 for a, b in zip(x, y)]))
 def manhattan(x, y):
-    return sum([a + b for a, b in zip(x, y)])
+    return sum([abs(a - b) for a, b in zip(x, y)])
 def chebyshev(x, y):
     return max([abs(b - a) for a, b in zip(x, y)])
 
@@ -67,7 +67,8 @@ def NWreg(dataset, x, dist, kernel, H, variable):
     if variable:
         H = kNN(dataset, dist, x, H)
     for row in dataset:
-        weight = kernel(dist(row[:-1], x) / H)
+        d = dist(row[:-1], x)
+        weight = kernel(d / H if H != 0 or d != 0 else 0)
         up += row[-1] * weight
         gr += weight
     return up / gr if gr != 0 else common
