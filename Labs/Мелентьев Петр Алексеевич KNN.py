@@ -85,21 +85,40 @@ normalized_dataset_values = normalize(dataset.values.copy(), min_max)
 pd.DataFrame(normalized_dataset_values)
 
 
-# In[95]:
+# In[8]:
 
 
-def NWreg(dataset, x, distance, kernel, H, onehot=False, lables=None):
+def kNN(dataset, distf, target, k):
+    distances = list()
+    for row in dataset:
+        dist = distf(target, row[:-1])
+        distances.append((row, dist))
+    distances.sort(key=lambda tup: tup[1])
+    
+#     neighbors = list()
+#     for i in range(k):
+#         neighbors.append(distances[i][0])
+    return distances[-1][1]
+
+
+# In[9]:
+
+
+def NWreg(dataset, x, dist, kernel, H, variable=False, onehot=False, lables=None):
     up = 0
     gr = 0
+    if variable:
+        H = kNN(dataset, dist, x, H)
     for idx, row in enumerate(dataset):
-        up += row[-1] * KERNEL(LENGTH(row[:-1], x) / H)
+        weight = kernel(dist(row[:-1], x) / H)
+        up += row[-1] * weight
         if onehot and lables is not None:
-            up += lables[idx] * KERNEL(LENGTH(row[:-1], x) / H)
-        gr += KERNEL(LENGTH(row[:-1], x)/H)
+            up += lables[idx] * weight
+        gr += weight
     return up / gr if gr != 0 else 0
 
 
-# In[76]:
+# In[10]:
 
 
 def F_macro(CM):
@@ -147,7 +166,7 @@ def F_macro(CM):
     return 2 * PrecW() * RecallW() / (PrecW() + RecallW())
 
 
-# In[19]:
+# In[11]:
 
 
 euclidean = distance.euclidean
@@ -157,7 +176,7 @@ chebyshev = distance.chebyshev
 distances = [euclidean, manhattan, chebyshev]
 
 
-# In[20]:
+# In[12]:
 
 
 def epanechnikov(u):
@@ -184,91 +203,98 @@ def sigmoid(u):
 kernels = [epanechnikov, uniform, triangular, quartic, triweight, tricube, gaussian, cosine, logistic, sigmoid]
 
 
-# In[26]:
+# In[25]:
 
 
 def regression(dataset):
     maxfscore = 0
     best = []
+    bestCM = np.zeros((CLASSES, CLASSES))
     for kernel in kernels:
-        for distsnce in distances:
-            windows = [x * 0.1 for x in range(20, 250)]
-            for window in windows:
-                CM = np.zeros((CLASSES, CLASSES))
-                for i in range(len(dataset.values)):
-                    curr_dataset = [row for idx, row in enumerate(dataset.values) if idx != i]
-                    res = NWreg(curr_dataset, dataset.values[i][:-1], distance, kernel, window)
-                    predicted = round(res) if res >= 0.5 else 1
-                    expected = round(dataset.values[i][-1])
-                    CM[predicted-1][expected-1] += 1
-                fscore = F_macro(CM)
-                if fscore > maxfscore:
-                    maxfscore = fscore
-                    best = [kernel, distsnce, window]
+        for distance in distances:
+            for is_variable in [False, True]:
+                if is_variable:
+                    windows = [x for x in range(2, 25)]
+                else:
+                    windows = [x * 0.1 for x in range(40, 250)]
+                for window in windows:
+                    CM = np.zeros((CLASSES, CLASSES))
+                    for i in range(len(dataset.values)):
+                        curr_dataset = [row for idx, row in enumerate(dataset.values) if idx != i]
+                        res = NWreg(curr_dataset, dataset.values[i][:-1],
+                                    distance, kernel, window, is_variable)
+                        predicted = round(res) if res >= 0.5 else 1
+                        expected = round(dataset.values[i][-1])
+                        CM[predicted-1][expected-1] += 1
+                    fscore = F_macro(CM)
+                    if fscore > maxfscore:
+                        maxfscore = fscore
+                        best = [kernel, distance, window, is_variable]
+                        bestCM = CM
     print(str(best))
-    
+    print(pd.DataFrame(bestCM))
+    print("F score: " + maxfscore.__str__())
+    return best, bestCM, maxfscore
 
 
-# In[27]:
+# In[26]:
 
 
-regression(dataset)
+best, cm, fsc = regression(dataset)
 
 
-# In[77]:
-
-
-def bestCM():
-    CM = np.zeros((CLASSES, CLASSES))
-    for i in range(len(dataset.values)):
-        curr_dataset = [row for idx, row in enumerate(dataset.values) if idx != i]
-        res = NWreg(curr_dataset, dataset.values[i][:-1], euclidean, epanechnikov, 20.7)
-        predicted = round(res) if res >= 0.5 else 1
-        expected = round(dataset.values[i][-1])
-        CM[predicted-1][expected-1] += 1
-    print(F_macro(CM))
-    return pd.DataFrame(CM)
-bestCM()
-
-
-# In[91]:
+# In[13]:
 
 
 onehot = pd.get_dummies(normalized_dataset_values[:,-1])
 onehot
 
 
-# In[115]:
+# In[18]:
 
 
 def regression(dataset, onehot): # for onehot
     maxfscore = 0
     best = []
+    bestCM = np.zeros((CLASSES, CLASSES))
     for kernel in kernels:
-        for distsnce in distances:
-            windows = [x for x in range(20, 25)]
-            for window in windows:
-                CM = np.zeros((CLASSES, CLASSES))
-                for i in range(len(dataset.values)):
-                    curr_dataset = [row for idx, row in enumerate(dataset.values) if idx != i]
-                    res = NWreg(curr_dataset, dataset.values[i][:-1], distance, kernel, window, True, onehot)
-                    predicted = np.where(res == max(res))[0][0]
-                    expected = round(dataset.values[i][-1])
-                    CM[predicted][expected-1] += 1
-                fscore = F_macro(CM)
-                if fscore > maxfscore:
-                    maxfscore = fscore
-                    best = [kernel, distsnce, window]
+        for distance in distances:
+            for is_variable in [False, True]:
+                if is_variable:
+                    windows = [x for x in range(2, 25)]
+                else:
+                    windows = [x * 0.1 for x in range(40, 250)]
+                for window in windows:
+                    CM = np.zeros((CLASSES, CLASSES))
+                    for i in range(len(dataset.values)):
+                        curr_dataset = [row for idx, row in enumerate(dataset.values) if idx != i]
+                        res = NWreg(curr_dataset, dataset.values[i][:-1],
+                                    distance, kernel, window, variable=is_variable, onehot=True, lables=onehot)
+                        if not isinstance(res, int):
+                            predicted = np.where(res == max(res))[0][0]
+                            #print(kernel.__str__(), str(distance), str(window), str(is_variable), str(predicted))
+                        else:
+                            predicted = 1
+                        expected = round(dataset.values[i][-1])
+                        CM[predicted][expected-1] += 1
+                    fscore = F_macro(CM)
+                    if fscore > maxfscore:
+                        maxfscore = fscore
+                        best = [kernel, distance, window, is_variable]
+                        bestCM = CM
     print(str(best))
+    print(pd.DataFrame(bestCM))
+    print("F score: " + maxfscore.__str__())
+    return best, bestCM, maxfscore
 
 
-# In[116]:
+# In[19]:
 
 
-regression(dataset, onehot.values)
+best1h, cm1h, fsc1h = regression(dataset, onehot.values)
 
 
-# In[120]:
+# In[21]:
 
 
 def plot1(dataset):
@@ -279,7 +305,7 @@ def plot1(dataset):
         CM = np.zeros((CLASSES, CLASSES))
         for i in range(len(dataset.values)):
             curr_dataset = [row for idx, row in enumerate(dataset.values) if idx != i]
-            res = NWreg(curr_dataset, dataset.values[i][:-1], euclidean, epanechnikov, window)
+            res = NWreg(curr_dataset, dataset.values[i][:-1], manhattan, logistic, window)
             predicted = round(res) if res >= 0.5 else 1
             expected = round(dataset.values[i][-1])
             CM[predicted-1][expected-1] += 1
